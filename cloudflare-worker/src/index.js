@@ -152,18 +152,108 @@ async function route(req,env) {
     const {results}=await env.CONTROL_DB.prepare("SELECT id,name,email,role,department_id,status,created_at FROM users WHERE department_id=? ORDER BY name").bind(depId).all();
     return json({ok:true,users:results});
   }
+  async function departmentContext(requestedId) {
+    const depId=isMaster(user)?requestedId:user.department_id;
+    if(!depId) throw new Error("Department context is required");
+    if(!isMaster(user)&&depId!==user.department_id) throw new Error("Cross-department access denied");
+    const dep=await env.CONTROL_DB.prepare("SELECT id,name,code,db_binding,status FROM departments WHERE id=?").bind(depId).first();
+    if(!dep||dep.status!=="Active") throw new Error("Department is unavailable");
+    const db=env[dep.db_binding];
+    if(!db) throw new Error("Department D1 binding is not configured");
+    return {dep,db};
+  }
+  async function reportSchema(depId) {
+    const specific=await env.CONTROL_DB.prepare("SELECT config_json FROM system_config WHERE config_key=?").bind("report_fields:"+depId).first();
+    const common=await env.CONTROL_DB.prepare("SELECT config_json FROM system_config WHERE config_key='report_fields'").first();
+    const fields=JSON.parse(specific?.config_json || common?.config_json || "[]");
+    if(!Array.isArray(fields)) throw new Error("Report field configuration must be a JSON array");
+    return fields;
+  }
+  const schemaMatch=path.match(/^\/api\/admin\/departments\/([^/]+)\/report-schema$/);
+  if(schemaMatch&&req.method==="PUT") {
+    if(!isMaster(user)) return fail("Master Admin permission required",403);
+    const depId=decodeURIComponent(schemaMatch[1]);
+    const dep=await env.CONTROL_DB.prepare("SELECT id FROM departments WHERE id=?").bind(depId).first();
+    if(!dep) return fail("Department not found",404);
+    const x=await body(req);
+    if(!Array.isArray(x?.fields)) return fail("Fields must be a JSON array");
+    const keys=new Set();
+    for(const f of x.fields) {
+      if(!f?.key||!/^[A-Za-z][A-Za-z0-9_]{0,59}$/.test(f.key)||keys.has(f.key)) return fail("Each field needs a unique valid key");
+      if(!["text","textarea","number","date","select"].includes(f.type||"text")) return fail("Unsupported field type: "+f.type);
+      if(f.type==="select"&&(!Array.isArray(f.options)||!f.options.length||f.options.length>100)) return fail("Select fields need 1–100 options");
+      if(typeof f.label!=="string"||!f.label.trim()||f.label.length>100) return fail("Each field needs a label of up to 100 characters");
+      keys.add(f.key);
+    }
+    await env.CONTROL_DB.prepare("INSERT INTO system_config(config_key,config_json,updated_at,updated_by) VALUES(?,?,?,?) ON CONFLICT(config_key) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
+      .bind("report_fields:"+depId,JSON.stringify(x.fields),new Date().toISOString(),user.id).run();
+    await audit(env,user,"REPORT_SCHEMA_UPDATE",depId);
+    return json({ok:true,message:"Department report schema saved"});
+  }
+  if(path==="/api/report-schema"&&req.method==="GET") {
+    try {
+      const {dep}=await departmentContext(url.searchParams.get("departmentId"));
+      return json({ok:true,department:{id:dep.id,name:dep.name},fields:await reportSchema(dep.id)});
+    } catch(e){return fail(e.message,403)}
+  }
   if(path==="/api/reports"&&req.method==="POST") {
     if(user.role==="Master Admin") return fail("Master Admin should select a department context to submit a report",400);
     const x=await body(req);
-    if(!x?.payload||!x?.period) return fail("Report period and payload are required");
-    const dep=await env.CONTROL_DB.prepare("SELECT code,db_binding,status FROM departments WHERE id=?").bind(user.department_id).first();
-    if(!dep||dep.status!=="Active") return fail("Department is unavailable",403);
-    const deptDb=env[dep.db_binding];
-    if(!deptDb) return fail("Department D1 binding is not configured. Ask Master Admin to provision it.",503);
-    const reportId=id("RPT");
-    await deptDb.prepare("INSERT INTO reports(id,user_id,period,payload_json,status,created_at) VALUES(?,?,?,?,'Submitted',?)")
-      .bind(reportId,user.id,x.period,JSON.stringify(x.payload),new Date().toISOString()).run();
-    return json({ok:true,reportId},201);
+    if(!x?.payload||typeof x.payload!=="object"||Array.isArray(x.payload)||!x?.period||String(x.period).length>40) return fail("A valid report period and payload object are required");
+    try {
+      const {dep,db}=await departmentContext();
+      const fields=await reportSchema(dep.id);
+      const allowed=new Set(fields.map(f=>f.key).filter(Boolean));
+      for(const f of fields) {
+        if(!f.key || !/^[A-Za-z][A-Za-z0-9_]{0,59}$/.test(f.key)) return fail("Invalid report field configuration",500);
+        const v=x.payload[f.key];
+        if(f.required && (v===undefined || v===null || String(v).trim()==="")) return fail("Required field missing: "+(f.label||f.key));
+        if(v!==undefined && v!==null && typeof v!=="string" && typeof v!=="number" && typeof v!=="boolean") return fail("Invalid value for field: "+f.key);
+        if(f.type==="number" && v!==undefined && v!==null && v!=="" && !Number.isFinite(Number(v))) return fail("Numeric value required for: "+(f.label||f.key));
+        if(f.type==="select" && v!==undefined && v!==null && v!=="" && Array.isArray(f.options) && !f.options.includes(v)) return fail("Invalid selection for: "+(f.label||f.key));
+      }
+      for(const k of Object.keys(x.payload)) if(!allowed.has(k)) return fail("Unknown report field: "+k);
+      const reportId=id("RPT");
+      await db.prepare("INSERT INTO reports(id,user_id,period,payload_json,status,created_at) VALUES(?,?,?,?,'Submitted',?)")
+        .bind(reportId,user.id,String(x.period),JSON.stringify(x.payload),new Date().toISOString()).run();
+      await audit(env,user,"REPORT_SUBMIT",reportId);
+      return json({ok:true,reportId,status:"Submitted"},201);
+    } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
+  }
+  if(path==="/api/reports"&&req.method==="GET") {
+    try {
+      const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
+      let sql="SELECT id,user_id,period,payload_json,status,created_at FROM reports";
+      let args=[];
+      if(user.role==="User") {sql+=" WHERE user_id=?";args.push(user.id)}
+      if(url.searchParams.get("status")) {sql+=(args.length||sql.includes("WHERE")?" AND":" WHERE")+" status=?";args.push(url.searchParams.get("status"))}
+      sql+=" ORDER BY created_at DESC LIMIT 500";
+      const {results}=await db.prepare(sql).bind(...args).all();
+      const ids=[...new Set(results.map(r=>r.user_id))];
+      let names={};
+      if(ids.length) {
+        const placeholders=ids.map(()=>"?").join(",");
+        const found=await env.CONTROL_DB.prepare(`SELECT id,name,email FROM users WHERE id IN (${placeholders})`).bind(...ids).all();
+        names=Object.fromEntries(found.results.map(u=>[u.id,{name:u.name,email:u.email}]));
+      }
+      return json({ok:true,department:{id:dep.id,name:dep.name},reports:results.map(r=>({...r,payload:JSON.parse(r.payload_json),employee:names[r.user_id]||null}))});
+    } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
+  }
+  const reportMatch=path.match(/^\/api\/reports\/([^/]+)\/status$/);
+  if(reportMatch&&req.method==="PUT") {
+    if(!["HOD","Department Admin","Master Admin"].includes(user.role)) return fail("Approval permission required",403);
+    const x=await body(req);
+    if(!["Approved","Rejected"].includes(x?.status)) return fail("Status must be Approved or Rejected");
+    try {
+      const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
+      const reportId=decodeURIComponent(reportMatch[1]);
+      const report=await db.prepare("SELECT id,status FROM reports WHERE id=?").bind(reportId).first();
+      if(!report) return fail("Report not found",404);
+      if(report.status!=="Submitted") return fail("Only submitted reports can be reviewed",409);
+      await db.prepare("UPDATE reports SET status=? WHERE id=?").bind(x.status,reportId).run();
+      await audit(env,user,"REPORT_"+x.status.toUpperCase(),reportId+" @ "+dep.code);
+      return json({ok:true,status:x.status});
+    } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
   }
   if(path==="/api/audit"&&req.method==="GET") {
     if(!isMaster(user)) return fail("Master Admin permission required",403);

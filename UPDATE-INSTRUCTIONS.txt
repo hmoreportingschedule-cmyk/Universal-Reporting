@@ -1,17 +1,23 @@
-UNIVERSAL REPORTING SYSTEM V2.4 — USER MANAGEMENT + ACCESS CONTROL
+UNIVERSAL REPORTING SYSTEM V2.5 — DEPARTMENT LIVE REPORTING UPDATE
 
-1. Merge the master-admin-console folder into your existing website project, replacing only:
-   /master-admin-console/app.js
-   /master-admin-console/index.html
-   /master-admin-console/style.css
-2. Replace Cloudflare Worker source:
-   /cloudflare-worker/src/index.js
-3. Deploy: npx wrangler deploy
-4. No database schema migration is needed.
-5. Open /master-admin-console/ and sign in as Master Admin.
+Files to add:
+- /reporting-portal/index.html
+- /reporting-portal/style.css
+- /reporting-portal/app.js
+- /reporting-portal/README.txt
 
-New: Edit user, optional password reset, activate/deactivate, server-enforced department user directory,
-cross-department isolation check, audit events for user changes.
+File to replace in Worker project:
+- /src/index.js (from cloudflare-worker/src/index.js)
 
-Do not overwrite your main website index.html or other existing frontend files.
-See cloudflare-worker/README-DEPLOY.txt and master-admin-console/README.txt.
+Steps:
+1. Merge the reporting-portal folder into the website root.
+2. Replace Worker src/index.js with the included V2.5 file.
+3. Deploy Worker: npx wrangler deploy
+4. Open https://YOUR-DOMAIN/reporting-portal/
+5. Login. Master Admin selects a department and configures report fields.
+6. Test with a User account, then test HOD approve/reject.
+No D1 schema migration is required.
+
+This is an incremental reporting release, not a claim that the entire legacy website has been migrated.
+The existing website frontend and all old modules still need integration against these endpoints.
+Restrict CORS to your exact production domain before real public data is used.

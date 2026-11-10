@@ -1,24 +1,34 @@
-UNIVERSAL REPORTING SYSTEM V2.4 — BACKEND UPDATE
+UNIVERSAL REPORTING SYSTEM V2.5 — LIVE REPORTING API
 
-Replace your deployed Worker source with cloudflare-worker/src/index.js from this package,
-then deploy from your existing Worker project with:
+Update your existing Worker source with cloudflare-worker/src/index.js and deploy:
   npx wrangler deploy
-
-No D1 schema migration is required for V2.4.
+No D1 schema migration is required; the V2.2 department schema already contains reports.status,
+payload_json, period and created_at columns.
 
 New endpoints:
-PUT   /api/admin/users/{userId}
-  JSON: {name,email,role,departmentId,status,password?}
-  password is optional; if supplied it must be 12+ characters.
-PATCH /api/admin/users/{userId}
-  JSON: {status:"Active"|"Inactive"}
-GET   /api/department/users
-  Department Admin/HOD: own department only.
-  Master Admin: supply ?departmentId=DEPARTMENT_ID.
+GET  /api/report-schema[?departmentId=...]
+GET  /api/reports[?departmentId=...&status=Submitted]
+POST /api/reports
+PUT  /api/reports/{reportId}/status[?departmentId=...]
+PUT  /api/admin/departments/{departmentId}/report-schema
 
-All user mutations are Master Admin-only and audited. A Master Admin cannot deactivate
-their own account or remove their own Master Admin role. Existing V2.3 Master Admin console
-now includes Edit and Activate/Deactivate actions.
+Access:
+- User: submit reports and read own reports only.
+- HOD / Department Admin: read and review reports in their own department only.
+- Master Admin: select departmentId to view/review its reports and configure department report schema.
+- Cross-department requests from non-Master roles are rejected server-side.
 
-IMPORTANT: CORS must be restricted to your exact website domain before public production use.
-Department database bindings must already be provisioned for report submissions.
+Dynamic schema format:
+[
+ {"key":"activity","label":"Activity Name","type":"text","required":true},
+ {"key":"count","label":"Achievement","type":"number","required":true},
+ {"key":"category","label":"Category","type":"select","required":false,"options":["A","B"]}
+]
+Supported types: text, textarea, number, date, select.
+Keys must be unique and match ^[A-Za-z][A-Za-z0-9_]{0,59}$.
+Schemas are stored in central D1 under report_fields:<departmentId>.
+The existing global report_fields config is used as fallback.
+
+Production warning:
+Restrict CORS to your exact HTTPS website origin in src/index.js before public launch.
+Enable Cloudflare login rate limiting / Turnstile. Test cross-department denial using two test departments.
