@@ -1,34 +1,24 @@
-UNIVERSAL REPORTING SYSTEM V2.5 — LIVE REPORTING API
+UNIVERSAL REPORTING SYSTEM V2.6 — APPROVAL + ANALYTICS
 
-Update your existing Worker source with cloudflare-worker/src/index.js and deploy:
-  npx wrangler deploy
-No D1 schema migration is required; the V2.2 department schema already contains reports.status,
-payload_json, period and created_at columns.
+1. Replace Worker source with cloudflare-worker/src/index.js.
+2. Apply migration ONCE to EACH existing department D1 database:
+   npx wrangler d1 execute urs-dept-CODE --remote --file=cloudflare-worker/migrations/0002_report_review_metadata.sql
+   Repeat for every department database. Do NOT run twice; SQLite ALTER TABLE will report duplicate columns.
+3. For newly created department databases, use updated schema-department.sql instead of the old schema.
+4. Deploy Worker: npx wrangler deploy
+5. Replace reporting portal files: /reporting-portal/index.html, style.css, app.js.
 
-New endpoints:
-GET  /api/report-schema[?departmentId=...]
-GET  /api/reports[?departmentId=...&status=Submitted]
-POST /api/reports
-PUT  /api/reports/{reportId}/status[?departmentId=...]
-PUT  /api/admin/departments/{departmentId}/report-schema
+New API:
+GET /api/analytics/summary[?departmentId=...]
+GET /api/analytics/ranking[?departmentId=...]
+PUT /api/reports/{reportId}/status[?departmentId=...]
+Review body: {"status":"Approved"|"Rejected","note":"optional review note"}
 
-Access:
-- User: submit reports and read own reports only.
-- HOD / Department Admin: read and review reports in their own department only.
-- Master Admin: select departmentId to view/review its reports and configure department report schema.
-- Cross-department requests from non-Master roles are rejected server-side.
+Dashboard:
+- HOD / Department Admin: own department summary, pending/approved/rejected counts, trend and contributor ranking.
+- Master Admin: select a department and view its dashboard.
+- Review notes and reviewer/time are stored in department DB.
+- Review and analytics endpoints enforce department context server-side.
 
-Dynamic schema format:
-[
- {"key":"activity","label":"Activity Name","type":"text","required":true},
- {"key":"count","label":"Achievement","type":"number","required":true},
- {"key":"category","label":"Category","type":"select","required":false,"options":["A","B"]}
-]
-Supported types: text, textarea, number, date, select.
-Keys must be unique and match ^[A-Za-z][A-Za-z0-9_]{0,59}$.
-Schemas are stored in central D1 under report_fields:<departmentId>.
-The existing global report_fields config is used as fallback.
-
-Production warning:
-Restrict CORS to your exact HTTPS website origin in src/index.js before public launch.
-Enable Cloudflare login rate limiting / Turnstile. Test cross-department denial using two test departments.
+IMPORTANT: This is a department reporting approval workflow, not a separate task assignment module.
+Restrict CORS to your production origin and test two departments before live launch.

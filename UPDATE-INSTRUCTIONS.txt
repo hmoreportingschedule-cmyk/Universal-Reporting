@@ -1,23 +1,23 @@
-UNIVERSAL REPORTING SYSTEM V2.5 — DEPARTMENT LIVE REPORTING UPDATE
+URS V2.6 — HOD APPROVAL WORKFLOW + ANALYTICS
 
-Files to add:
-- /reporting-portal/index.html
-- /reporting-portal/style.css
-- /reporting-portal/app.js
-- /reporting-portal/README.txt
+Replace:
+- Cloudflare Worker /src/index.js
+- Website /reporting-portal/index.html
+- Website /reporting-portal/style.css
+- Website /reporting-portal/app.js
 
-File to replace in Worker project:
-- /src/index.js (from cloudflare-worker/src/index.js)
+Required database migration for EACH existing V2.5 department D1 database, run ONCE:
+npx wrangler d1 execute urs-dept-CODE --remote --file=cloudflare-worker/migrations/0002_report_review_metadata.sql
 
-Steps:
-1. Merge the reporting-portal folder into the website root.
-2. Replace Worker src/index.js with the included V2.5 file.
-3. Deploy Worker: npx wrangler deploy
-4. Open https://YOUR-DOMAIN/reporting-portal/
-5. Login. Master Admin selects a department and configures report fields.
-6. Test with a User account, then test HOD approve/reject.
-No D1 schema migration is required.
+For new department databases, use updated cloudflare-worker/schema-department.sql.
+Then deploy Worker: npx wrangler deploy
 
-This is an incremental reporting release, not a claim that the entire legacy website has been migrated.
-The existing website frontend and all old modules still need integration against these endpoints.
-Restrict CORS to your exact production domain before real public data is used.
+Features:
+- HOD / Department Admin approval workspace
+- Approve / Reject with optional review note
+- Reviewer identity and review timestamp stored
+- Department KPI cards, reporting trend and contributor ranking
+- Department-scoped analytics and review authorization
+
+Do not replace website root index.html or Master Admin Console files.
+See cloudflare-worker/README-DEPLOY.txt. Migration must run once per existing department database.

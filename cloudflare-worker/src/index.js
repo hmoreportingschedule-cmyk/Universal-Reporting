@@ -223,7 +223,7 @@ async function route(req,env) {
   if(path==="/api/reports"&&req.method==="GET") {
     try {
       const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
-      let sql="SELECT id,user_id,period,payload_json,status,created_at FROM reports";
+      let sql="SELECT id,user_id,period,payload_json,status,created_at,reviewed_by,reviewed_at,review_note FROM reports";
       let args=[];
       if(user.role==="User") {sql+=" WHERE user_id=?";args.push(user.id)}
       if(url.searchParams.get("status")) {sql+=(args.length||sql.includes("WHERE")?" AND":" WHERE")+" status=?";args.push(url.searchParams.get("status"))}
@@ -244,15 +244,48 @@ async function route(req,env) {
     if(!["HOD","Department Admin","Master Admin"].includes(user.role)) return fail("Approval permission required",403);
     const x=await body(req);
     if(!["Approved","Rejected"].includes(x?.status)) return fail("Status must be Approved or Rejected");
+    if(x.note!==undefined && (typeof x.note!=="string"||x.note.length>1000)) return fail("Review note must be text up to 1000 characters");
     try {
       const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
       const reportId=decodeURIComponent(reportMatch[1]);
       const report=await db.prepare("SELECT id,status FROM reports WHERE id=?").bind(reportId).first();
       if(!report) return fail("Report not found",404);
       if(report.status!=="Submitted") return fail("Only submitted reports can be reviewed",409);
-      await db.prepare("UPDATE reports SET status=? WHERE id=?").bind(x.status,reportId).run();
+      await db.prepare("UPDATE reports SET status=?,reviewed_by=?,reviewed_at=?,review_note=? WHERE id=?")
+        .bind(x.status,user.id,new Date().toISOString(),x.note||"",reportId).run();
       await audit(env,user,"REPORT_"+x.status.toUpperCase(),reportId+" @ "+dep.code);
-      return json({ok:true,status:x.status});
+      return json({ok:true,status:x.status,reviewedAt:new Date().toISOString()});
+    } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
+  }
+  if(path==="/api/analytics/summary"&&req.method==="GET") {
+    try {
+      const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
+      const total=await db.prepare("SELECT COUNT(*) total FROM reports").first();
+      const statuses=await db.prepare("SELECT status,COUNT(*) count FROM reports GROUP BY status").all();
+      const active=await db.prepare("SELECT COUNT(DISTINCT user_id) count FROM reports").first();
+      const byPeriod=await db.prepare("SELECT period,COUNT(*) count FROM reports GROUP BY period ORDER BY period DESC LIMIT 12").all();
+      const statusCounts=Object.fromEntries(statuses.results.map(x=>[x.status,x.count]));
+      return json({ok:true,department:{id:dep.id,name:dep.name},metrics:{
+        totalReports:total.total||0,submitted:statusCounts.Submitted||0,approved:statusCounts.Approved||0,
+        rejected:statusCounts.Rejected||0,activeContributors:active.count||0
+      },byPeriod:byPeriod.results});
+    } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
+  }
+  if(path==="/api/analytics/ranking"&&req.method==="GET") {
+    try {
+      const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
+      const {results}=await db.prepare("SELECT user_id,COUNT(*) total,SUM(CASE WHEN status='Approved' THEN 1 ELSE 0 END) approved,SUM(CASE WHEN status='Rejected' THEN 1 ELSE 0 END) rejected FROM reports GROUP BY user_id ORDER BY approved DESC,total DESC LIMIT 20").all();
+      const ids=results.map(x=>x.user_id);
+      let users={};
+      if(ids.length) {
+        const placeholders=ids.map(()=>"?").join(",");
+        const found=await env.CONTROL_DB.prepare(`SELECT id,name,email FROM users WHERE id IN (${placeholders})`).bind(...ids).all();
+        users=Object.fromEntries(found.results.map(x=>[x.id,x]));
+      }
+      return json({ok:true,department:{id:dep.id,name:dep.name},ranking:results.map((x,i)=>({
+        rank:i+1,userId:x.user_id,name:users[x.user_id]?.name||"Unknown user",
+        total:x.total,approved:x.approved||0,rejected:x.rejected||0
+      }))});
     } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
   }
   if(path==="/api/audit"&&req.method==="GET") {
