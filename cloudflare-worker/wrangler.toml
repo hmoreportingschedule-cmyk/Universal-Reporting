@@ -1,0 +1,15 @@
+name = "urs-live-api"
+main = "src/index.js"
+compatibility_date = "2026-11-10"
+
+[[d1_databases]]
+binding = "CONTROL_DB"
+database_name = "urs-control"
+database_id = "REPLACE_WITH_CONTROL_DATABASE_ID"
+migrations_dir = "migrations"
+
+# Add one binding per department database, for example:
+# [[d1_databases]]
+# binding = "DEPT_EDU"
+# database_name = "urs-dept-edu"
+# database_id = "REPLACE_WITH_DEPARTMENT_DATABASE_ID"

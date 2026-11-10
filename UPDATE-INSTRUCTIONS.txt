@@ -1,0 +1,16 @@
+Universal Reporting System V2.2 — Live Backend Foundation Update
+
+New files:
+- cloudflare-worker/src/index.js
+- cloudflare-worker/schema-control.sql
+- cloudflare-worker/schema-department.sql
+- cloudflare-worker/wrangler.toml
+- cloudflare-worker/.dev.vars.example
+- cloudflare-worker/README-DEPLOY.txt
+
+This is an additive backend update. Do not replace your existing index.html, style.css or app.js
+with these files. The V2.1 package supplied earlier contains only a browser localStorage app.js
+patch; this package creates the Cloudflare Worker + D1 backend foundation and deployment guide.
+
+Read cloudflare-worker/README-DEPLOY.txt before deployment. The website is NOT live until the
+Worker and databases are deployed and the complete frontend is integrated with the API.
