@@ -1,12 +1,17 @@
-UNIVERSAL REPORTING SYSTEM V2.3 — MASTER ADMIN CONSOLE UPDATE
+UNIVERSAL REPORTING SYSTEM V2.4 — USER MANAGEMENT + ACCESS CONTROL
 
-Copy the complete master-admin-console folder into your website hosting project as:
-  /master-admin-console/
+1. Merge the master-admin-console folder into your existing website project, replacing only:
+   /master-admin-console/app.js
+   /master-admin-console/index.html
+   /master-admin-console/style.css
+2. Replace Cloudflare Worker source:
+   /cloudflare-worker/src/index.js
+3. Deploy: npx wrangler deploy
+4. No database schema migration is needed.
+5. Open /master-admin-console/ and sign in as Master Admin.
 
-Do not overwrite existing index.html, CSS or JS. This update is additive.
-The console uses your V2.2 Worker API. Deploy Worker first, then open:
-  https://YOUR-WEBSITE-DOMAIN/master-admin-console/
+New: Edit user, optional password reset, activate/deactivate, server-enforced department user directory,
+cross-department isolation check, audit events for user changes.
 
-Read master-admin-console/README.txt.
-This provides the Master Admin management/configuration console foundation. Custom JSON schemas
-are stored centrally, but your employee/report frontend must still be integrated to render them.
+Do not overwrite your main website index.html or other existing frontend files.
+See cloudflare-worker/README-DEPLOY.txt and master-admin-console/README.txt.

@@ -19,7 +19,7 @@ async function refresh(){
  const [d,u,c]=await Promise.all([api("/api/admin/departments"),api("/api/admin/users"),api("/api/admin/config")]);
  departments=d.departments;users=u.users;
  $("#departments").innerHTML=departments.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.code)}</td><td>${esc(x.status)}</td><td>${esc(x.db_binding)}</td></tr>`).join("")||'<tr><td colspan="4">No departments yet</td></tr>';
- $("#users").innerHTML=users.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.role)}</td><td>${esc(x.department_id||"—")}</td><td>${esc(x.status)}</td></tr>`).join("")||'<tr><td colspan="5">No users yet</td></tr>';
+ $("#users").innerHTML=users.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.role)}</td><td>${esc(x.department_id||"—")}</td><td>${esc(x.status)}</td><td><button class="mini" data-edit="${esc(x.id)}">Edit</button> <button class="mini secondary" data-status="${esc(x.id)}" data-next="${x.status==="Active"?"Inactive":"Active"}">${x.status==="Active"?"Deactivate":"Activate"}</button></td></tr>`).join("")||'<tr><td colspan="6">No users yet</td></tr>';
  $("#userDepartment").innerHTML='<option value="">Select department</option>'+departments.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} (${esc(x.code)})</option>`).join("");
  const cfg=Object.fromEntries(c.config.map(x=>[x.key,x.value]));
  for(const k of keys) $("#cfg_"+k).value=JSON.stringify(cfg[k]??defaultConfig(k),null,2);
@@ -31,3 +31,26 @@ $("#userForm").addEventListener("submit",async e=>{e.preventDefault();try{const 
 $("#saveConfig").onclick=async()=>{try{for(const k of keys){const value=parseJson("#cfg_"+k);await api("/api/admin/config","PUT",{key:k,value})}msg("All customization settings saved to central database.");}catch(e){msg(e.message,true)}};
 $("#reload").onclick=()=>refresh().then(()=>msg("Data refreshed.")).catch(e=>msg(e.message,true));
 $("#roleHelp").textContent="Roles: Master Admin, Department Admin, HOD, User. Master Admin can configure the whole system; other roles are department-scoped.";
+
+$("#users").addEventListener("click",async e=>{
+ const edit=e.target.closest("[data-edit]"), status=e.target.closest("[data-status]");
+ try{
+  if(edit){
+   const u=users.find(v=>v.id===edit.dataset.edit); if(!u)return;
+   const name=prompt("Full name:",u.name); if(name===null)return;
+   const email=prompt("Email:",u.email); if(email===null)return;
+   const role=prompt("Role: Master Admin, Department Admin, HOD, User",u.role); if(role===null)return;
+   const departmentId=role==="Master Admin"?"":prompt("Department ID (required except Master Admin):",u.department_id||"");
+   if(departmentId===null)return;
+   const statusValue=prompt("Status: Active or Inactive",u.status); if(statusValue===null)return;
+   const password=prompt("Optional: new password (leave blank to keep current; minimum 12 characters):","");
+   if(password===null)return;
+   await api("/api/admin/users/"+encodeURIComponent(u.id),"PUT",{name,email,role,departmentId,status:statusValue,...(password?{password}:{})});
+   await refresh();msg("User details updated.");
+  } else if(status){
+   if(!confirm(`Change this user's status to ${status.dataset.next}?`))return;
+   await api("/api/admin/users/"+encodeURIComponent(status.dataset.status),"PATCH",{status:status.dataset.next});
+   await refresh();msg("User status updated.");
+  }
+ }catch(err){msg(err.message,true)}
+});

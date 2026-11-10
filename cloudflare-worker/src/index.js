@@ -44,7 +44,7 @@ async function route(req,env) {
   if(req.method==="OPTIONS") return new Response(null,{headers:cors});
   if(!env.CONTROL_DB||!env.JWT_SECRET) return fail("Worker secrets/database bindings are not configured",503);
   const url=new URL(req.url), path=url.pathname.replace(/\/+$/,"")||"/";
-  if(path==="/api/health"&&req.method==="GET") return json({ok:true,service:"URS Live API",version:"2.2",mode:"live-backend"});
+  if(path==="/api/health"&&req.method==="GET") return json({ok:true,service:"URS Live API",version:"2.4",mode:"live-backend"});
   if(path==="/api/setup"&&req.method==="POST") {
     const x=await body(req);
     if(!x||!env.BOOTSTRAP_SECRET||x.bootstrapSecret!==env.BOOTSTRAP_SECRET) return fail("Invalid setup authorization",403);
@@ -109,6 +109,48 @@ async function route(req,env) {
     catch{return fail("Email already exists or data is invalid",409)}
     await audit(env,user,"USER_CREATE",x.email);
     return json({ok:true},201);
+  }
+  const userMatch=path.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if(userMatch && (req.method==="PUT" || req.method==="PATCH")) {
+    if(!isMaster(user)) return fail("Master Admin permission required",403);
+    const targetId=decodeURIComponent(userMatch[1]);
+    const target=await env.CONTROL_DB.prepare("SELECT id,name,email,role,department_id,status FROM users WHERE id=?").bind(targetId).first();
+    if(!target) return fail("User not found",404);
+    const x=await body(req); if(!x) return fail("Invalid request body");
+    if(req.method==="PUT") {
+      if(!x.name || !x.email || !x.role) return fail("Name, email and role are required");
+      const allowed=["Master Admin","Department Admin","HOD","User"];
+      if(!allowed.includes(x.role) || (x.role!=="Master Admin"&&!x.departmentId)) return fail("Valid role and department are required");
+      if(target.id===user.id && (x.role!=="Master Admin" || x.status==="Inactive")) return fail("You cannot remove your own Master Admin access or deactivate your own account",409);
+      try {
+        await env.CONTROL_DB.prepare("UPDATE users SET name=?,email=?,role=?,department_id=?,status=? WHERE id=?")
+          .bind(x.name.trim(),x.email.toLowerCase().trim(),x.role,x.role==="Master Admin"?null:x.departmentId,
+            x.status==="Inactive"?"Inactive":"Active",targetId).run();
+      } catch { return fail("Email already exists or user data is invalid",409); }
+      if(x.password) {
+        if(x.password.length<12) return fail("New password must be at least 12 characters");
+        const ph=await hashPassword(x.password);
+        await env.CONTROL_DB.prepare("UPDATE users SET password_salt=?,password_hash=? WHERE id=?")
+          .bind(ph.salt,ph.hash,targetId).run();
+      }
+      await audit(env,user,"USER_UPDATE",target.email+" -> "+x.email);
+      return json({ok:true,message:"User updated"});
+    }
+    if(req.method==="PATCH") {
+      if(!["Active","Inactive"].includes(x.status)) return fail("Status must be Active or Inactive");
+      if(target.id===user.id && x.status==="Inactive") return fail("You cannot deactivate your own account",409);
+      await env.CONTROL_DB.prepare("UPDATE users SET status=? WHERE id=?").bind(x.status,targetId).run();
+      await audit(env,user,"USER_STATUS",target.email+" -> "+x.status);
+      return json({ok:true,message:"User status updated"});
+    }
+  }
+  if(path==="/api/department/users"&&req.method==="GET") {
+    if(!["Master Admin","Department Admin","HOD"].includes(user.role)) return fail("Department management permission required",403);
+    const depId=isMaster(user)?url.searchParams.get("departmentId"):user.department_id;
+    if(!depId) return fail("Department context is required");
+    if(!isMaster(user) && depId!==user.department_id) return fail("Cross-department access denied",403);
+    const {results}=await env.CONTROL_DB.prepare("SELECT id,name,email,role,department_id,status,created_at FROM users WHERE department_id=? ORDER BY name").bind(depId).all();
+    return json({ok:true,users:results});
   }
   if(path==="/api/reports"&&req.method==="POST") {
     if(user.role==="Master Admin") return fail("Master Admin should select a department context to submit a report",400);
