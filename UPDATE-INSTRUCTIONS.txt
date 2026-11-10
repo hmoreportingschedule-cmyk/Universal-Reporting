@@ -1,23 +1,17 @@
-URS V2.6 — HOD APPROVAL WORKFLOW + ANALYTICS
+V2.8 CONSOLIDATED SOURCE BUNDLE
 
-Replace:
-- Cloudflare Worker /src/index.js
-- Website /reporting-portal/index.html
-- Website /reporting-portal/style.css
-- Website /reporting-portal/app.js
+This is a full bundle of the modules available in the conversation, not a replacement of the
+missing original demo application. It includes a new root launch page.
 
-Required database migration for EACH existing V2.5 department D1 database, run ONCE:
-npx wrangler d1 execute urs-dept-CODE --remote --file=cloudflare-worker/migrations/0002_report_review_metadata.sql
+Repository structure:
+index.html
+assets/site.css
+cloudflare-worker/
+master-admin-console/
+reporting-portal/
+README-V2.8.txt
+UPDATE-INSTRUCTIONS.txt
 
-For new department databases, use updated cloudflare-worker/schema-department.sql.
-Then deploy Worker: npx wrangler deploy
-
-Features:
-- HOD / Department Admin approval workspace
-- Approve / Reject with optional review note
-- Reviewer identity and review timestamp stored
-- Department KPI cards, reporting trend and contributor ranking
-- Department-scoped analytics and review authorization
-
-Do not replace website root index.html or Master Admin Console files.
-See cloudflare-worker/README-DEPLOY.txt. Migration must run once per existing department database.
+For a new repository, upload all folders/files preserving paths.
+For an existing repository, compare before replacing; back up your current branch first.
+Follow README-V2.8.txt for D1 provisioning, secrets, CORS and deployment.

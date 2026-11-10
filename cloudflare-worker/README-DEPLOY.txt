@@ -1,24 +1,41 @@
-UNIVERSAL REPORTING SYSTEM V2.6 — APPROVAL + ANALYTICS
+UNIVERSAL REPORTING SYSTEM V2.7 — ADVANCED REPORTS & TARGET ANALYTICS
 
-1. Replace Worker source with cloudflare-worker/src/index.js.
-2. Apply migration ONCE to EACH existing department D1 database:
-   npx wrangler d1 execute urs-dept-CODE --remote --file=cloudflare-worker/migrations/0002_report_review_metadata.sql
-   Repeat for every department database. Do NOT run twice; SQLite ALTER TABLE will report duplicate columns.
-3. For newly created department databases, use updated schema-department.sql instead of the old schema.
-4. Deploy Worker: npx wrangler deploy
-5. Replace reporting portal files: /reporting-portal/index.html, style.css, app.js.
+Worker update:
+- Replace cloudflare-worker/src/index.js in your Worker project.
+- No D1 schema migration is required for V2.7; it uses existing V2.6 tables and system_config.
 
-New API:
-GET /api/analytics/summary[?departmentId=...]
-GET /api/analytics/ranking[?departmentId=...]
-PUT /api/reports/{reportId}/status[?departmentId=...]
-Review body: {"status":"Approved"|"Rejected","note":"optional review note"}
+Deploy:
+  npx wrangler deploy
 
-Dashboard:
-- HOD / Department Admin: own department summary, pending/approved/rejected counts, trend and contributor ranking.
-- Master Admin: select a department and view its dashboard.
-- Review notes and reviewer/time are stored in department DB.
-- Review and analytics endpoints enforce department context server-side.
+Website update:
+Replace only:
+- /reporting-portal/index.html
+- /reporting-portal/style.css
+- /reporting-portal/app.js
 
-IMPORTANT: This is a department reporting approval workflow, not a separate task assignment module.
-Restrict CORS to your production origin and test two departments before live launch.
+V2.7 API additions:
+PUT /api/admin/departments/{departmentId}/targets
+  Master Admin only; body { "period":"2026-11", "target":250, "unit":"approved reports" }
+GET /api/analytics/target?departmentId=...&period=2026-11
+  Department users see only their own department. Master Admin supplies departmentId.
+GET /api/analytics/department-comparison?period=2026-11
+  Master Admin only; compares all active departments' approved reports with configured targets.
+
+Target calculation:
+- Achievement = number of Approved reports for the selected period.
+- Achievement % = approved / target * 100.
+- Submitted and rejected reports do not count as achieved.
+- If no target is configured, target and achievement percentage show as zero.
+
+Portal:
+- Target vs Achievement panel.
+- Master Admin can set target per department and period.
+- Master Admin can compare all active departments.
+- CSV export of the reports currently returned by the API (maximum 500).
+- Print / Save PDF uses the browser print dialog; select "Save as PDF".
+
+Security:
+- Target changes are Master Admin-only and audited.
+- Department comparison is Master Admin-only.
+- Target analytics enforce department isolation.
+- Restrict CORS to your exact production domain before live public use.

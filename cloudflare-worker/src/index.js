@@ -257,6 +257,50 @@ async function route(req,env) {
       return json({ok:true,status:x.status,reviewedAt:new Date().toISOString()});
     } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
   }
+  const targetMatch=path.match(/^\/api\/admin\/departments\/([^/]+)\/targets$/);
+  if(targetMatch&&req.method==="PUT") {
+    if(!isMaster(user)) return fail("Master Admin permission required",403);
+    const depId=decodeURIComponent(targetMatch[1]);
+    const dep=await env.CONTROL_DB.prepare("SELECT id FROM departments WHERE id=?").bind(depId).first();
+    if(!dep) return fail("Department not found",404);
+    const x=await body(req);
+    if(!x||typeof x.target!=="number"||!Number.isFinite(x.target)||x.target<0||!x.period||String(x.period).length>40) return fail("A valid non-negative target and period are required");
+    const key="target:"+depId+":"+String(x.period);
+    await env.CONTROL_DB.prepare("INSERT INTO system_config(config_key,config_json,updated_at,updated_by) VALUES(?,?,?,?) ON CONFLICT(config_key) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
+      .bind(key,JSON.stringify({target:x.target,unit:x.unit||"reports"}),new Date().toISOString(),user.id).run();
+    await audit(env,user,"TARGET_UPDATE",key);
+    return json({ok:true,message:"Department target saved"});
+  }
+  if(path==="/api/analytics/target"&&req.method==="GET") {
+    try {
+      const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));
+      const period=url.searchParams.get("period");
+      if(!period) return fail("Reporting period is required");
+      const row=await env.CONTROL_DB.prepare("SELECT config_json FROM system_config WHERE config_key=?").bind("target:"+dep.id+":"+period).first();
+      const target=row?JSON.parse(row.config_json).target:0;
+      const actual=await db.prepare("SELECT COUNT(*) total,SUM(CASE WHEN status='Approved' THEN 1 ELSE 0 END) approved FROM reports WHERE period=?").bind(period).first();
+      const achieved=actual.approved||0;
+      return json({ok:true,department:{id:dep.id,name:dep.name},period,target,actual:achieved,totalSubmitted:actual.total||0,
+        achievementPercent:target>0?Math.round(achieved/target*10000)/100:0,remaining:Math.max(0,target-achieved)});
+    } catch(e){return fail(e.message,e.message.includes("Cross-department")?403:400)}
+  }
+  if(path==="/api/analytics/department-comparison"&&req.method==="GET") {
+    if(!isMaster(user)) return fail("Master Admin permission required",403);
+    const period=url.searchParams.get("period");
+    if(!period) return fail("Reporting period is required");
+    const {results}=await env.CONTROL_DB.prepare("SELECT id,name,code,db_binding FROM departments WHERE status='Active' ORDER BY name").all();
+    const rows=[];
+    for(const dep of results) {
+      const db=env[dep.db_binding];
+      if(!db) {rows.push({departmentId:dep.id,department:dep.name,code:dep.code,error:"Database binding missing"});continue}
+      const actual=await db.prepare("SELECT COUNT(*) total,SUM(CASE WHEN status='Approved' THEN 1 ELSE 0 END) approved FROM reports WHERE period=?").bind(period).first();
+      const config=await env.CONTROL_DB.prepare("SELECT config_json FROM system_config WHERE config_key=?").bind("target:"+dep.id+":"+period).first();
+      const target=config?JSON.parse(config.config_json).target:0,approved=actual.approved||0;
+      rows.push({departmentId:dep.id,department:dep.name,code:dep.code,target,approved,total:actual.total||0,
+        achievementPercent:target>0?Math.round(approved/target*10000)/100:0});
+    }
+    return json({ok:true,period,departments:rows});
+  }
   if(path==="/api/analytics/summary"&&req.method==="GET") {
     try {
       const {dep,db}=await departmentContext(url.searchParams.get("departmentId"));

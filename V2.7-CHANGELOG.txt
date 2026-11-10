@@ -1,0 +1,9 @@
+V2.7 CHANGELOG
+- Added department-period targets stored in central D1 system_config.
+- Added target vs approved achievement API and dashboard.
+- Added Master Admin all-department comparison API.
+- Added report CSV export for currently loaded reports.
+- Added browser print stylesheet for Save as PDF.
+- Preserved existing department-scoped access and HOD approval workflow.
+- No D1 migration required.
+- Node syntax checks passed for Worker and reporting portal JavaScript.
