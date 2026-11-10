@@ -1,16 +1,12 @@
-Universal Reporting System V2.2 — Live Backend Foundation Update
+UNIVERSAL REPORTING SYSTEM V2.3 — MASTER ADMIN CONSOLE UPDATE
 
-New files:
-- cloudflare-worker/src/index.js
-- cloudflare-worker/schema-control.sql
-- cloudflare-worker/schema-department.sql
-- cloudflare-worker/wrangler.toml
-- cloudflare-worker/.dev.vars.example
-- cloudflare-worker/README-DEPLOY.txt
+Copy the complete master-admin-console folder into your website hosting project as:
+  /master-admin-console/
 
-This is an additive backend update. Do not replace your existing index.html, style.css or app.js
-with these files. The V2.1 package supplied earlier contains only a browser localStorage app.js
-patch; this package creates the Cloudflare Worker + D1 backend foundation and deployment guide.
+Do not overwrite existing index.html, CSS or JS. This update is additive.
+The console uses your V2.2 Worker API. Deploy Worker first, then open:
+  https://YOUR-WEBSITE-DOMAIN/master-admin-console/
 
-Read cloudflare-worker/README-DEPLOY.txt before deployment. The website is NOT live until the
-Worker and databases are deployed and the complete frontend is integrated with the API.
+Read master-admin-console/README.txt.
+This provides the Master Admin management/configuration console foundation. Custom JSON schemas
+are stored centrally, but your employee/report frontend must still be integrated to render them.
